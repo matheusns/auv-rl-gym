@@ -1,0 +1,4 @@
+<launch>
+  <rosparam file="$(find auv_rl_gym)/config/auv_env.yaml" command="load"/>
+  <node pkg="auv_rl_gym" name="auv_rl_gym_node" type="test.py"  output="screen"/>
+</launch>

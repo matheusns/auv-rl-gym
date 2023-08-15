@@ -1,0 +1,3 @@
+odom_topic: "/desistek_saga/pose_gt"
+velocity_topic: "/desistek_saga/cmd_vel"
+

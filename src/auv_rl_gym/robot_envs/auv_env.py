@@ -7,20 +7,20 @@ from geometry_msgs.msg import Twist
 
 from openai_ros import robot_gazebo_env
 
-class AuvDockingEnv(robot_gazebo_env.RobotGazeboEnv):
+class AuvEnv(robot_gazebo_env.RobotGazeboEnv):
     def __init__(self):
-        rospy.logdebug("Start AuvDockingEnv INIT...")
+        rospy.logdebug("Start AuvEnv INIT...")
         
         self.init_attributes()
         self.init_ROS_attributes()
 
-        super(AuvDockingEnv, self).__init__(controllers_list=self.controllers_list,
+        super(AuvEnv, self).__init__(controllers_list=self.controllers_list,
                                             robot_name_space=self.robot_name_space,
                                             reset_controls=False,
                                             start_init_physics_parameters=False,
                                             reset_world_or_sim="WORLD")
         self.wait_simulation()
-        rospy.logdebug("AuvDockingEnv: Finished AuvDockingEnv INIT")
+        rospy.logdebug("AuvEnv: Finished AuvEnv INIT")
 
     def init_attributes(self):
         self.controllers_list = []
@@ -48,10 +48,10 @@ class AuvDockingEnv(robot_gazebo_env.RobotGazeboEnv):
         self.gazebo.pauseSim()
         
     def _check_all_systems_ready(self):
-        rospy.logdebug("AuvDockingEnv: checking all systems...")
+        rospy.logdebug("AuvEnv: checking all systems...")
         self._check_all_sensors_ready()
         self._check_all_publishers_ready()
-        rospy.loginfo("AuvDockingEnv: system is ready")
+        rospy.loginfo("AuvEnv: system is ready")
         return True
 
     def _check_all_sensors_ready(self):
@@ -63,19 +63,19 @@ class AuvDockingEnv(robot_gazebo_env.RobotGazeboEnv):
             try:
                 self.odom = rospy.wait_for_message(self.odom_topic_name, Odometry, timeout=1.0)
             except:
-                rospy.logerr("AuvDockingEnv: current %s not ready yet", self.odom_topic_name)
+                rospy.logerr("AuvEnv: current %s not ready yet", self.odom_topic_name)
 
-        rospy.loginfo("AuvDockingEnv: current %s is ready", self.odom_topic_name)
+        rospy.loginfo("AuvEnv: current %s is ready", self.odom_topic_name)
     
     def _check_all_publishers_ready(self):
         for publisher_object in self.publishers_array:
             self._check_pub_connection(publisher_object)
-        rospy.logdebug("AuvDockingEnv: all Publishers READY")
+        rospy.logdebug("AuvEnv: all Publishers READY")
 
     def _check_pub_connection(self, publisher_object):
         rate = rospy.Rate(10)  # 10hz
         while publisher_object.get_num_connections() == 0 and not rospy.is_shutdown():
-            rospy.logdebug("AuvDockingEnv: no susbribers to publisher_object yet so we wait and try again")
+            rospy.logdebug("AuvEnv: no susbribers to publisher_object yet so we wait and try again")
             try:
                 rate.sleep()
             except rospy.ROSInterruptException:

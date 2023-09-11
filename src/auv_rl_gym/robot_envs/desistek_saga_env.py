@@ -18,9 +18,9 @@ class DesistekSagaEnv(robot_gazebo_env.RobotGazeboEnv):
                                             robot_name_space=self.robot_name_space,
                                             reset_controls=False,
                                             start_init_physics_parameters=False,
-                                            reset_world_or_sim="WORLD")
+                                            reset_world_or_sim="NO_RESET_SIM")
         self.wait_simulation()
-        rospy.logdebug("DesistekSagaEnv: Finished DesistekSagaEnv initialization")
+        rospy.loginfo("DesistekSagaEnv: Finished DesistekSagaEnv initialization")
 
     def init_attributes(self):
         self.controllers_list = []
@@ -112,14 +112,18 @@ class DesistekSagaEnv(robot_gazebo_env.RobotGazeboEnv):
     def _get_obs(self):
         raise NotImplementedError()
 
-    def _is_done(self, observations):
+    def _is_terminated(self, observations):
         """Checks if episode done based on observations given.
+        """
+        raise NotImplementedError()
+
+    def _is_truncated(self, observations):
+        """Checks if episode truncation conditions are satisfied.
         """
         raise NotImplementedError()
         
     # Methods that the TrainingEnvironment will need.
     # ----------------------------
-
     def wait_time_for_execute_movement(self, time_sleep):
         time.sleep(time_sleep)
     

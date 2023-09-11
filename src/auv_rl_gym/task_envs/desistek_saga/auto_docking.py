@@ -2,8 +2,8 @@ import numpy as np
 
 import rospy 
 # Gym 
-from gym import spaces
-from gym.envs.registration import register
+from gymnasium import spaces
+# from gym.envs.registration import register
 # ROS msgs
 from geometry_msgs.msg import Twist, Pose
 # Gazebo interfaces
@@ -15,8 +15,6 @@ import tf.transformations
 
 from auv_rl_gym.robot_envs.desistek_saga_env import DesistekSagaEnv
 
-TIMESTEP_LIMIT_PER_EPISODE = 10000 
-
 MIN_LINEAR_X = -10.0
 MAX_LINEAR_X = 10.0
 
@@ -26,19 +24,20 @@ MAX_LINEAR_Z = 10.0
 MIN_ANGULAR_Z = -10.0
 MAX_ANGULAR_Z = 10.0
 
-register(
-        id='DesistekSagaAutoDocking-v0',
-        entry_point='auv_rl_gym.task_envs.desistek_saga.auto_docking:AutoDocking',
-        timestep_limit=TIMESTEP_LIMIT_PER_EPISODE,
-    )
+# register(
+#         id='DesistekSagaAutoDocking-v0',
+#         entry_point='auv_rl_gym.task_envs.desistek_saga.auto_docking:AutoDocking',
+#         max_episode_steps=TIMESTEP_LIMIT_PER_EPISODE,
+#     )
 
 class AutoDocking(DesistekSagaEnv):
-    def ___init__(self):
+    def __init__(self):
+        super(AutoDocking, self).__init__()
         self.init_intrinsic_parameters()
         self.init_hyperparameters()
         self.init_ROS_channels()
         
-        super(AutoDocking, self).__init__()
+        self.init_member_variables()
 
         rospy.loginfo("Desistek_saga::AutoDocking: task started")
 
@@ -51,19 +50,17 @@ class AutoDocking(DesistekSagaEnv):
         
         self.star_time = None
         
-        rospy.loginfo("ACTION SPACES TYPE===>"+str(self.action_space))
-        rospy.loginfo("OBSERVATION SPACES TYPE===>"+str(self.observation_space))
-
     def set_action_space(self):
         """ 
         action[0]: x linear velocity
         action[1]: y linear velocity
         action[2]: z angular velocity (heading) 
         """
-        return spaces.Box(low=np.array( [MIN_LINEAR_X, MIN_LINEAR_Z, MIN_ANGULAR_Z]),
+        return spaces.Box(low=np.array([MIN_LINEAR_X, MIN_LINEAR_Z, MIN_ANGULAR_Z]),
                                        high=np.array([MAX_LINEAR_X, MAX_LINEAR_Z, MAX_ANGULAR_Z]),
                                        dtype=np.float32)
 
+    # todo: change it to get from pose estimation during the experiments
     def set_obs_space_boundaries(self):
         """ 
         obs[0]: Translation error in the x-direction
@@ -84,69 +81,93 @@ class AutoDocking(DesistekSagaEnv):
         self.max_offset = rospy.get_param('/desistek_saga/episode/max_offset')
         self.min_offset = rospy.get_param('/desistek_saga/episode/min_offset')
 
-        self.timeout = rospy.get_param('/desistek_saga/episode/timeout')
+        self.set_timeout(rospy.get_param('/desistek_saga/episode/timeout'))
         
+        self.init_position_range_x = rospy.get_param('/desistek_saga/pose/init_position_range_x', [-5.0, 5.0])
+        self.init_position_range_y = rospy.get_param('/desistek_saga/pose/init_position_range_y', [15.0, 25.0])
+        self.init_position_range_z = rospy.get_param('/desistek_saga/pose/init_position_range_z', [-98.0, -95.0])
+        self.init_orientation_range_yaw = rospy.get_param('/desistek_saga/pose/initial_orientation_range_yaw', [-0.5, 0.5])
+
+
         self.target_pose = self.set_target_pose()
-        self.set_tartget_yaw = self.set_target_yaw()
-        self.initial_position, self.initial_orientation = self.set_initial_pose()
+        self.set_target_yaw = self.set_target_yaw()
         
+    def init_member_variables(self):
+        self.debug = {}
+        self.debug['traveled_path'] = []
+        self.debug['distances'] = []
+        self.debug['heading errors'] = []
+        self.random_respawn = True
+        
+    def set_timeout(self, timeout):
+        self.timeout = rospy.Duration(timeout)
+
     def set_target_pose(self):
         # Professor: Provide the desired goal pose. yes = using a local frame: either robot or camera
         position = rospy.get_param("/desistek_saga/pose/target_pose/position")
         orientation = rospy.get_param("/desistek_saga/pose/target_pose/orientation")
 
         target = Pose()
-        target.pose.pose.position.x = position[0]
-        target.pose.pose.position.y = position[1]
-        target.pose.pose.position.z = position[2]
+        target.position.x = position[0]
+        target.position.y = position[1]
+        target.position.z = position[2]
         
-        target.pose.pose.orientation.x = orientation[0]
-        target.pose.pose.orientation.y = orientation[1]
-        target.pose.pose.orientation.z = orientation[2]
-        target.pose.pose.orientation.w = orientation[3]
+        quaternion = tf.transformations.quaternion_from_euler(
+                        orientation[0],
+                        orientation[1],
+                        orientation[2],
+                        )
+        
+        target.orientation.x = quaternion[0]
+        target.orientation.y = quaternion[1]
+        target.orientation.z = quaternion[2]
+        target.orientation.w = quaternion[3]
 
         return target
     
-    def set_tartget_yaw(self):
+    def set_target_yaw(self):
         return tf.transformations.euler_from_quaternion([
-                self.target_pose.pose.pose.orientation.x,
-                self.target_pose.pose.pose.orientation.y,
-                self.target_pose.pose.pose.orientation.z,
-                self.target_pose.pose.pose.orientation.w
+                self.target_pose.orientation.x,
+                self.target_pose.orientation.y,
+                self.target_pose.orientation.z,
+                self.target_pose.orientation.w
                 ])[2]
-        
-    def set_initial_pose(self):
-        position = rospy.get_param('/desistek_saga/pose/initial_position')
-        orientation = rospy.get_param('/desistek_saga/pose/initial_orientation')
-        
-        self.initial_pose_msg = self.create_pose_msg(position, orientation)
-        
-        return position, orientation
         
     def init_ROS_channels(self):
         self.respawn_service = '/gazebo/set_model_state'    
 
     def is_timeout(self):   
         elapsed_time = rospy.Time.now() - self.start_time
-        return elapsed_time > self.timeout
+        
+        if elapsed_time > self.timeout:
+            rospy.loginfo("Desistek_saga::AutoDocking: Episode is over, timeout!")
+            return True
+
+        return False
+
+    def distance_to_target(self, error):
+        return np.linalg.norm(error)
 
     def is_inside_workspace(self, obs):
         position_error = np.array(obs[:3])
-        distance_to_target = np.linalg.norm(position_error)
+        distance_to_target = self.distance_to_target(position_error)
         
-        is_near_target = distance_to_target < self.min_offset
+        rospy.loginfo("Desistek_saga::AutoDocking: Distance to target: %s", distance_to_target)
         
-        is_within_boundary = distance_to_target < self.max_offset
+        if distance_to_target >= self.max_offset:
+            rospy.loginfo("Desistek_saga::AutoDocking: Episode is over, agent out of workspace!")
+            return False
         
-        return is_near_target and is_within_boundary
+        return True
+
     
-    def create_pose_msg(self, translation, euler):
+    def create_pose_msg(self, translation, yaw):
         pose_msg = Pose()
         pose_msg.position.x = translation[0]
         pose_msg.position.y = translation[1]
         pose_msg.position.z = translation[2]
         
-        quaternion = tf.transformations.quaternion_from_euler(euler)
+        quaternion = self.yaw_to_quaternion(yaw)
 
         pose_msg.orientation.x = quaternion[0]
         pose_msg.orientation.y = quaternion[1]
@@ -158,6 +179,10 @@ class AutoDocking(DesistekSagaEnv):
     def yaw_to_quaternion(self, yaw):
         quaternion = tf.transformations.quaternion_from_euler(0, 0, yaw)
         return quaternion
+    
+    def set_initial_poses(self, poses):
+        self.random_respawn = False
+        self.intial_positions = poses
 
     # Methods that the this class implements
     # They will be used in RobotGazeboEnv GrandParentClass and defined in the DesistekSagaEnv
@@ -176,11 +201,15 @@ class AutoDocking(DesistekSagaEnv):
     def _set_action(self, action):
         cmd = Twist()
         cmd.linear.x = action[0]
-        cmd.linear.y = action[1]
+        cmd.linear.z = action[1]
         cmd.angular.z = action[2]
         
         self._cmd_drive_pub.publish(cmd)
         self.last_action = action
+        
+        self.wait_time_for_execute_movement(1)
+        
+        #todo: add 1s and check if it works. Otherwise, implement turtlebot2 solution
 
     def _get_obs(self):
         """ 
@@ -194,27 +223,38 @@ class AutoDocking(DesistekSagaEnv):
         obs[7]: z angular velocity from the last step 
         """
         odom = self._get_odom()
-        position_error = [self.target_pose.pose.pose.position[0] - odom.pose.pose.position.x,
-                          self.target_pose.pose.pose.position[1] - odom.pose.pose.position.y,
-                          self.target_pose.pose.pose.position[2] - odom.pose.pose.position.z]
+        odom_pose = odom.pose.pose
+        position_error = [self.target_pose.position.x - odom_pose.position.x,
+                          self.target_pose.position.y - odom_pose.position.y,
+                          self.target_pose.position.z - odom_pose.position.z]
                           
         current_yaw = tf.transformations.euler_from_quaternion([
-            odom.pose.pose.orientation.x,
-            odom.pose.pose.orientation.y,
-            odom.pose.pose.orientation.z,
-            odom.pose.pose.orientation.w
+            odom_pose.orientation.x,
+            odom_pose.orientation.y,
+            odom_pose.orientation.z,
+            odom_pose.orientation.w
         ])[2]
                           
-        heading_error = self.set_tartget_yaw - current_yaw 
+        heading_error = self.set_target_yaw - current_yaw 
         
         linear_velocities = [odom.twist.twist.linear.x, odom.twist.twist.linear.y, odom.twist.twist.linear.z]
         angular_velocity_z = odom.twist.twist.angular.z
         
         return position_error + [heading_error] + linear_velocities + [angular_velocity_z]
     
-    def _is_done(self, observations):
-        return self.is_timeout() or self.is_inside_workspace(observations)
-
+    def _is_terminated(self, observations):
+        
+        position_error = np.array(observations[:3])
+        distance_to_target = self.distance_to_target(position_error)
+        
+        if distance_to_target <= self.min_offset:
+            rospy.loginfo("Desistek_saga::AutoDocking: Episode is over, agent reached the goal!")
+            return True
+        
+        return False 
+        
+    def _is_truncated(self, observations):
+        return (self.is_timeout() or (not self.is_inside_workspace(observations)))
   
     def _compute_reward(self, observations, done):
         heading = np.abs(observations[3])
@@ -223,6 +263,13 @@ class AutoDocking(DesistekSagaEnv):
         euclidean_distance = np.linalg.norm(position_error)
         
         # Compute the reward
+        # todo: add a reward whzen it arrives to the pose
+        
+        print ("########")
+        print ("Heading being considered = " + str(heading)) 
+        print ("Error list = " + str(position_error)) 
+        print ("Distance error being considered = " + str(euclidean_distance)) 
+
         reward = -(heading + euclidean_distance)
         
         return reward
@@ -242,17 +289,36 @@ class AutoDocking(DesistekSagaEnv):
         self._check_all_systems_ready()
         self._set_init_pose() (overriden)
     """
+    
     def _set_init_pose(self):
         rospy.wait_for_service(self.respawn_service)
         try:
             set_model_state = rospy.ServiceProxy(self.respawn_service, SetModelState)
             state_msg = ModelState()
             state_msg.model_name = "desistek_saga"
+            
+            if not self.random_respawn and self.intial_positions:
+                pose = self.intial_positions.pop(0)
+                x = pose[0]
+                y = pose[1]
+                z = pose[2]
+                yaw = pose[3]
+                rospy.loginfo("Using provided initial poses for respawning")
+            else:
+                x = np.random.uniform(self.init_position_range_x[0], self.init_position_range_x[1])
+                y = np.random.uniform(self.init_position_range_y[0], self.init_position_range_y[1])
+                z = np.random.uniform(self.init_position_range_z[0], self.init_position_range_z[1])
+                yaw = np.random.uniform(self.init_orientation_range_yaw[0], self.init_orientation_range_yaw[1])
 
-            pose_msg = self.initial_pose_msg
+                rospy.loginfo("Using random initial poses for respawning")
+
+            pose_msg = self.create_pose_msg([x, y, z], yaw)
 
             state_msg.pose = pose_msg
             set_model_state(state_msg)
+            
+            rospy.loginfo("Respawning desistek_saga at position: x: %s, y: %s, z: %s with yaw: %s" % 
+                            (x, y, z, yaw))
 
         except rospy.ServiceException as e:
             rospy.loginfo("Failed to desistek_saga state: %s" % e)
@@ -265,3 +331,8 @@ class AutoDocking(DesistekSagaEnv):
         self.cumulated_reward = 0.0
         self._episode_done = False
         self.start_time = rospy.Time.now()
+        
+if __name__ == '__main__':
+    rospy.init_node('desistek_saga_auto_docking', anonymous=True, log_level=rospy.DEBUG)
+    env = AutoDocking()
+    rospy.spin()

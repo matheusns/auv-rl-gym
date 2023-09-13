@@ -44,7 +44,7 @@ class AutoDocking(DesistekSagaEnv):
         
         self.star_time = None
         
-    def set_action_space(self):
+    def set_action_space_old(self):
         """ 
         action[0]: x linear velocity
         action[1]: y linear velocity
@@ -53,6 +53,19 @@ class AutoDocking(DesistekSagaEnv):
         return spaces.Box(low=np.array([MIN_LINEAR_X, MIN_LINEAR_Z, MIN_ANGULAR_Z]),
                                        high=np.array([MAX_LINEAR_X, MAX_LINEAR_Z, MAX_ANGULAR_Z]),
                                        dtype=np.float32)
+        
+
+    def set_action_space(self):
+        """
+        Action space to be symmetric and normalized between -1 and 1, as required by gymnasium.
+        
+        action[0]: x linear velocity
+        action[1]: y linear velocity
+        action[2]: z angular velocity (heading) 
+        """
+        return spaces.Box(low=np.array([-1.0, -1.0, -1.0]),
+                        high=np.array([1.0, 1.0, 1.0]),
+                        dtype=np.float32)
 
     # todo: change it to get from pose estimation during the experiments
     def set_obs_space_boundaries(self):
@@ -84,8 +97,7 @@ class AutoDocking(DesistekSagaEnv):
         self.init_position_range_y = rospy.get_param('/desistek_saga/pose/init_position_range_y', [15.0, 25.0])
         self.init_position_range_z = rospy.get_param('/desistek_saga/pose/init_position_range_z', [-98.0, -95.0])
         self.init_orientation_range_yaw = rospy.get_param('/desistek_saga/pose/initial_orientation_range_yaw', [-0.5, 0.5])
-
-
+        
         self.target_pose = self.set_target_pose()
         self.set_target_yaw = self.set_target_yaw()
         
@@ -195,7 +207,7 @@ class AutoDocking(DesistekSagaEnv):
         reward = self._compute_reward(obs, done) (overriden)
     """
     # ----------------------------
-    def _set_action(self, action):
+    def _set_action_old(self, action):
         cmd = Twist()
         cmd.linear.x = action[0]
         cmd.linear.z = action[1]
@@ -208,6 +220,19 @@ class AutoDocking(DesistekSagaEnv):
         
         #todo: add 1s and check if it works. Otherwise, implement turtlebot2 solution
 
+    def _set_action(self, action):
+        cmd = Twist()
+
+        # Rescale the actions from normalized range to actual range
+        cmd.linear.x = action[0] * (MAX_LINEAR_X - MIN_LINEAR_X) / 2.0 + (MAX_LINEAR_X + MIN_LINEAR_X) / 2.0
+        cmd.linear.z = action[1] * (MAX_LINEAR_Z - MIN_LINEAR_Z) / 2.0 + (MAX_LINEAR_Z + MIN_LINEAR_Z) / 2.0
+        cmd.angular.z = action[2] * (MAX_ANGULAR_Z - MIN_ANGULAR_Z) / 2.0 + (MAX_ANGULAR_Z + MIN_ANGULAR_Z) / 2.0
+
+        self._cmd_drive_pub.publish(cmd)
+        self.last_action = action
+
+        self.wait_time_for_execute_movement(1)
+        
     def _get_obs(self):
         """ 
         obs[0]: Translation error in the x-direction
@@ -261,10 +286,10 @@ class AutoDocking(DesistekSagaEnv):
         position_error = np.array(observations[:3])
         euclidean_distance = np.linalg.norm(position_error)
         
-        print ("########")
-        print ("Heading being considered = " + str(heading)) 
-        print ("Error list = " + str(position_error)) 
-        print ("Distance error being considered = " + str(euclidean_distance)) 
+        rospy.logdebug ("########")
+        rospy.logdebug ("Heading being considered = " + str(heading)) 
+        rospy.logdebug ("Error list = " + str(position_error)) 
+        rospy.logdebug ("Distance error being considered = " + str(euclidean_distance)) 
 
         reward = -(heading + euclidean_distance)
         

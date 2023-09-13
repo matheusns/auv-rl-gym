@@ -24,12 +24,6 @@ MAX_LINEAR_Z = 10.0
 MIN_ANGULAR_Z = -10.0
 MAX_ANGULAR_Z = 10.0
 
-# register(
-#         id='DesistekSagaAutoDocking-v0',
-#         entry_point='auv_rl_gym.task_envs.desistek_saga.auto_docking:AutoDocking',
-#         max_episode_steps=TIMESTEP_LIMIT_PER_EPISODE,
-#     )
-
 class AutoDocking(DesistekSagaEnv):
     def __init__(self):
         super(AutoDocking, self).__init__()
@@ -72,7 +66,10 @@ class AutoDocking(DesistekSagaEnv):
         obs[6]: z linear velocity from the last step
         obs[7]: z angular velocity from the last step 
         """
-        low = np.array([-np.inf, -np.inf, -np.inf, -np.inf, -np.inf, -np.inf, -np.inf, -np.inf])
+        min_trans_error = -100000
+        min_velocity_error = min_trans_error
+        low = np.array([min_trans_error, min_trans_error, min_trans_error, -np.pi, min_velocity_error, 
+                        min_velocity_error, min_velocity_error, min_velocity_error])
         high = low*-1
         
         return spaces.Box(low, high, dtype=np.float32)
@@ -240,7 +237,9 @@ class AutoDocking(DesistekSagaEnv):
         linear_velocities = [odom.twist.twist.linear.x, odom.twist.twist.linear.y, odom.twist.twist.linear.z]
         angular_velocity_z = odom.twist.twist.angular.z
         
-        return position_error + [heading_error] + linear_velocities + [angular_velocity_z]
+        obs = position_error + [heading_error] + linear_velocities + [angular_velocity_z]
+        
+        return np.array(obs, dtype=np.float32)
     
     def _is_terminated(self, observations):
         
@@ -256,14 +255,11 @@ class AutoDocking(DesistekSagaEnv):
     def _is_truncated(self, observations):
         return (self.is_timeout() or (not self.is_inside_workspace(observations)))
   
-    def _compute_reward(self, observations, done):
+    def _compute_reward(self, observations, terminated):
         heading = np.abs(observations[3])
         
         position_error = np.array(observations[:3])
         euclidean_distance = np.linalg.norm(position_error)
-        
-        # Compute the reward
-        # todo: add a reward whzen it arrives to the pose
         
         print ("########")
         print ("Heading being considered = " + str(heading)) 
@@ -272,7 +268,7 @@ class AutoDocking(DesistekSagaEnv):
 
         reward = -(heading + euclidean_distance)
         
-        return reward
+        return float(reward)
 
     # Following the methods required for reseting the environment are implemented
     # The interface method called in reset(), which returns the current observation

@@ -303,6 +303,7 @@ class AutoDocking(DesistekSagaEnv):
         euclidean_distance = np.linalg.norm(position_error)
         
         rospy.loginfo ("########")
+        rospy.loginfo ("Desistek_saga::AutoDocking: Episode = " + str(self.episode_num))
         rospy.loginfo ("Desistek_saga::AutoDocking: Elapsed time = " + str((rospy.Time.now() - self.start_time).to_sec()))
         rospy.loginfo ("Desistek_saga::AutoDocking: Position Error = " + str(position_error)) 
         rospy.loginfo ("Desistek_saga::AutoDocking: Heading Error = " + str(heading_error)) 

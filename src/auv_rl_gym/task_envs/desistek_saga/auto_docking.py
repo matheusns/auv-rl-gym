@@ -1,5 +1,5 @@
 import numpy as np
-
+import math
 import rospy 
 # Gym 
 from gymnasium import spaces
@@ -109,7 +109,7 @@ class AutoDocking(DesistekSagaEnv):
         self.random_respawn = True
         
     def set_timeout(self, timeout):
-        self.timeout = rospy.Duration(timeout)
+        self.timeout = timeout
 
     def set_target_pose(self):
         # Professor: Provide the desired goal pose. yes = using a local frame: either robot or camera
@@ -148,7 +148,7 @@ class AutoDocking(DesistekSagaEnv):
     def is_timeout(self):   
         elapsed_time = rospy.Time.now() - self.start_time
         
-        if elapsed_time > self.timeout:
+        if elapsed_time.to_sec() > self.timeout:
             rospy.loginfo("Desistek_saga::AutoDocking: Episode is over, timeout!")
             return True
 
@@ -160,8 +160,6 @@ class AutoDocking(DesistekSagaEnv):
     def is_inside_workspace(self, obs):
         position_error = np.array(obs[:3])
         distance_to_target = self.distance_to_target(position_error)
-        
-        rospy.loginfo("Desistek_saga::AutoDocking: Distance to target: %s", distance_to_target)
         
         if distance_to_target >= self.max_offset:
             rospy.loginfo("Desistek_saga::AutoDocking: Episode is over, agent out of workspace!")
@@ -192,6 +190,22 @@ class AutoDocking(DesistekSagaEnv):
     def set_initial_poses(self, poses):
         self.random_respawn = False
         self.intial_positions = poses
+        
+    def calculate_heading_error(self, yaw, position_error):
+        
+        dx = position_error[0]
+        dy = position_error[1]
+
+        # Calculate the angle to the target in the global frame
+        target_angle_global = math.atan2(dy, dx)
+
+        # Calculate the relative angle from the robot's current yaw angle to the target
+        relative_yaw_to_target = target_angle_global - yaw
+
+        # Normalize the angle to be between -pi and pi
+        heading_error = math.atan2(math.sin(relative_yaw_to_target), math.cos(relative_yaw_to_target))
+
+        return heading_error
 
     # Methods that the this class implements
     # They will be used in RobotGazeboEnv GrandParentClass and defined in the DesistekSagaEnv
@@ -256,8 +270,10 @@ class AutoDocking(DesistekSagaEnv):
             odom_pose.orientation.z,
             odom_pose.orientation.w
         ])[2]
+        
+        rospy.loginfo ("Desistek_saga::AutoDocking: Current Yaw = " + str(current_yaw)) 
                           
-        heading_error = self.set_target_yaw - current_yaw 
+        heading_error = self.calculate_heading_error(current_yaw, position_error)
         
         linear_velocities = [odom.twist.twist.linear.x, odom.twist.twist.linear.y, odom.twist.twist.linear.z]
         angular_velocity_z = odom.twist.twist.angular.z
@@ -281,18 +297,19 @@ class AutoDocking(DesistekSagaEnv):
         return (self.is_timeout() or (not self.is_inside_workspace(observations)))
   
     def _compute_reward(self, observations, terminated):
-        heading = np.abs(observations[3])
+        heading_error = np.abs(observations[3])
         
         position_error = np.array(observations[:3])
         euclidean_distance = np.linalg.norm(position_error)
         
-        rospy.logdebug ("########")
-        rospy.logdebug ("Heading being considered = " + str(heading)) 
-        rospy.logdebug ("Error list = " + str(position_error)) 
-        rospy.logdebug ("Distance error being considered = " + str(euclidean_distance)) 
+        rospy.loginfo ("########")
+        rospy.loginfo ("Desistek_saga::AutoDocking: Elapsed time = " + str((rospy.Time.now() - self.start_time).to_sec()))
+        rospy.loginfo ("Desistek_saga::AutoDocking: Position Error = " + str(position_error)) 
+        rospy.loginfo ("Desistek_saga::AutoDocking: Heading Error = " + str(heading_error)) 
+        rospy.loginfo ("Desistek_saga::AutoDocking: Distance to target = " + str(euclidean_distance)) 
+        reward = -(heading_error + euclidean_distance)
+        rospy.loginfo ("Desistek_saga::AutoDocking: Step reward = " + str(reward))
 
-        reward = -(heading + euclidean_distance)
-        
         return float(reward)
 
     # Following the methods required for reseting the environment are implemented

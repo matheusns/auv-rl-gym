@@ -60,7 +60,7 @@ class AutoDocking(DesistekSagaEnv):
         Action space to be symmetric and normalized between -1 and 1, as required by gymnasium.
         
         action[0]: x linear velocity
-        action[1]: y linear velocity
+        action[1]: z linear velocity
         action[2]: z angular velocity (heading) 
         """
         return spaces.Box(low=np.array([-1.0, -1.0, -1.0]),
